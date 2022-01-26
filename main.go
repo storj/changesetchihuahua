@@ -6,7 +6,9 @@ import (
 	"log"
 	"net"
 	"net/url"
+	"time"
 
+	"github.com/thepaul/autocert"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -22,6 +24,9 @@ var (
 	persistentDBSource = flag.String("persistent-db", "sqlite:./persistent.db", "Data source for persistent DB (supported types: sqlite, postgres)")
 	teamFile           = flag.String("team-file", "teams.dat", "Where to store information about registered teams")
 	externalURL        = flag.String("external-url", "https://localhost.localdomain/", "The URL by which external hosts (including Slack servers) can contact this server")
+	operatorEmail      = flag.String("operator-email", "", "Contact email address to be submitted to ACME server (e.g. Let's Encrypt) to be put in issued SSL certificates")
+	certRenewBefore    = flag.Duration("cert-renew-before", time.Hour*24*30, "How early certificates should be renewed before they expire")
+	certCacheDir       = flag.String("cert-cache-dir", "./ssl-cert-cache/", "A directory on the local filesystem which will be used for storing SSL certificate information. If it does not exist, the directory will be created with 0700 permissions.")
 )
 
 func main() {
@@ -64,12 +69,12 @@ func main() {
 	}
 
 	if *httpsListenAddr != "" {
-		manager := NewTLSAutoCertManager(func(ctx context.Context, hostName string) error {
+		manager := autocert.NewTLSAutoCertManager(func(ctx context.Context, hostName string) error {
 			if hostName != parsedURL.Host {
 				return errs.New("invalid hostname %q", hostName)
 			}
 			return nil
-		})
+		}, *operatorEmail, *certRenewBefore, *certCacheDir)
 		webHandler := newUIWebHandler(logger.Named("web-handler"), webState, true)
 		httpsServer := newUIWebServer(webState, webHandler)
 		httpsListener, err := manager.Listen("tcp", *httpsListenAddr)
