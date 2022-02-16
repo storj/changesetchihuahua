@@ -1295,13 +1295,16 @@ type reportConfig struct {
 }
 
 func (a *App) PeriodicTeamReports(ctx context.Context, getTime func() time.Time) error {
-	timeToNext, nextReport := a.nextTeamReport(ctx, getTime())
+	timeToNext, nextReports := a.nextTeamReport(ctx, getTime())
+	a.logger.Debug("calculated next reports", zap.Duration("timer", timeToNext), zap.Any("reports", nextReports))
 	timer := time.NewTimer(timeToNext)
 
 	for {
 		select {
 		case t := <-timer.C:
-			a.TeamReport(ctx, t, nextReport)
+			for _, nextReport := range nextReports {
+				a.TeamReport(ctx, t, nextReport)
+			}
 		case <-ctx.Done():
 			if !timer.Stop() {
 				<-timer.C
@@ -1309,19 +1312,19 @@ func (a *App) PeriodicTeamReports(ctx context.Context, getTime func() time.Time)
 			return ctx.Err()
 		case <-a.reconfigureChannel:
 		}
-		timeToNext, nextReport = a.nextTeamReport(ctx, getTime())
+		timeToNext, nextReports = a.nextTeamReport(ctx, getTime())
 		timer.Reset(timeToNext)
 	}
 }
 
-func (a *App) nextTeamReport(ctx context.Context, now time.Time) (timeToNext time.Duration, report reportConfig) {
+func (a *App) nextTeamReport(ctx context.Context, now time.Time) (timeToNext time.Duration, nextReports []reportConfig) {
 	// get information about all desired team reports
 	items, err := a.persistentDB.GetConfigWildcard(ctx, "reports.%.timeofday")
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
 			a.logger.Error("failed to retrieve config items by wildcard", zap.Error(err))
 		}
-		return time.Hour * 24, reportConfig{}
+		return time.Hour * 24, nil
 	}
 	reports := make([]reportConfig, 0, len(items))
 	for reportKey, timeOfDay := range items {
@@ -1356,18 +1359,25 @@ func (a *App) nextTeamReport(ctx context.Context, now time.Time) (timeToNext tim
 		return reports[i].NextTime.Before(reports[j].NextTime)
 	})
 	// but really, we want the soonest one for which we can get the corresponding config
-	for _, r := range reports {
+	for reportNum, r := range reports {
 		err := a.getTeamReportConfigPartial(ctx, r.Name, &r)
 		if err != nil {
 			a.logger.Warn("failed to get full report config", zap.String("report-name", reports[0].Name), zap.Error(err))
 			continue
 		}
-		return r.NextTime.Sub(now), r
+		// and we want to return all reports with the same time; otherwise, the time will
+		// already be passed by the next time we call nextTeamReport()
+		for i := reportNum + 1; i < len(reports); i++ {
+			if !reports[i].NextTime.Equal(r.NextTime) {
+				return r.NextTime.Sub(now), reports[reportNum:i]
+			}
+		}
+		return r.NextTime.Sub(now), reports[reportNum:]
 	}
 
 	// there were no configured team reports, or at least none that were configured correctly
 	// enough to send anything. we'll try re-reading the config in 24 hours' time.
-	return time.Hour * 24, reportConfig{}
+	return time.Hour * 24, nil
 }
 
 func determineNextTime(reportTime time.Time, weekends bool, now time.Time) time.Time {
