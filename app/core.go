@@ -1313,6 +1313,7 @@ func (a *App) PeriodicTeamReports(ctx context.Context, getTime func() time.Time)
 		case <-a.reconfigureChannel:
 		}
 		timeToNext, nextReports = a.nextTeamReport(ctx, getTime())
+		a.logger.Debug("calculated next reports", zap.Duration("timer", timeToNext), zap.Any("reports", nextReports))
 		timer.Reset(timeToNext)
 	}
 }
@@ -1362,17 +1363,24 @@ func (a *App) nextTeamReport(ctx context.Context, now time.Time) (timeToNext tim
 	for reportNum, r := range reports {
 		err := a.getTeamReportConfigPartial(ctx, r.Name, &r)
 		if err != nil {
-			a.logger.Warn("failed to get full report config", zap.String("report-name", reports[0].Name), zap.Error(err))
+			a.logger.Warn("failed to get full report config", zap.String("report-name", r.Name), zap.Error(err))
 			continue
 		}
-		// and we want to return all reports with the same time; otherwise, the time will
-		// already be passed by the next time we call nextTeamReport()
+		nextReports = []reportConfig{r}
+		// and we want to return all other reports with the same time; otherwise, the time
+		// will already be passed by the next time we call nextTeamReport()
 		for i := reportNum + 1; i < len(reports); i++ {
 			if !reports[i].NextTime.Equal(r.NextTime) {
-				return r.NextTime.Sub(now), reports[reportNum:i]
+				break
 			}
+			err := a.getTeamReportConfigPartial(ctx, reports[i].Name, &reports[i])
+			if err != nil {
+				a.logger.Warn("failed to get full report config", zap.String("report-name", reports[i].Name), zap.Error(err))
+				continue
+			}
+			nextReports = append(nextReports, reports[i])
 		}
-		return r.NextTime.Sub(now), reports[reportNum:]
+		return r.NextTime.Sub(now), nextReports
 	}
 
 	// there were no configured team reports, or at least none that were configured correctly
@@ -1464,6 +1472,7 @@ func (a *App) TeamReport(ctx context.Context, t time.Time, config reportConfig) 
 		return
 	}
 
+	logger.Debug("making gerrit query", zap.String("query", config.GerritQuery), zap.Int("max-size", teamReportMaxSize))
 	changes, more, err := gerritClient.QueryChangesEx(ctx, []string{config.GerritQuery}, &gerrit.QueryChangesOpts{
 		Limit:                    teamReportMaxSize,
 		DescribeLabels:           true,
