@@ -1775,6 +1775,9 @@ func (a *App) formatChangeInfoLink(ch *gerrit.ChangeInfo) string {
 
 func (a *App) prepareUserLink(ctx context.Context, account *events.Account) string {
 	chatID := a.lookupGerritUser(ctx, account)
+	if a.isBlocklisted(ctx, chatID) {
+		return chatID
+	}
 	return a.formatUserLink(account, chatID)
 }
 
