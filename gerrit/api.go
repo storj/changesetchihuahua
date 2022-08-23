@@ -107,8 +107,7 @@ func (c *client) doGet(ctx context.Context, path string, query url.Values) (*htt
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
-		logger.Debug("Non-success from Gerrit", zap.Int("status-code", resp.StatusCode), zap.String("status-message", resp.Status), zap.String("response-body", string(body)), zap.String("response-error", err.Error()))
+		logger.Debug("Non-success from Gerrit", zap.Int("status-code", resp.StatusCode), zap.String("status-message", resp.Status))
 		return resp, nil, errs.New("unexpected status code %d from query to %q: %s", resp.StatusCode, myURL, resp.Status)
 	}
 	bodyReader := newGerritMagicRemovingReader(resp.Body)
