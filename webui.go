@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -59,7 +58,7 @@ func (ws *uiWebState) Setup(w http.ResponseWriter, _ *http.Request) {
 
 func (ws *uiWebState) HandleChatEvent(w http.ResponseWriter, r *http.Request) {
 	limited := io.LimitedReader{R: r.Body, N: events.MaxEventPayloadSize}
-	body, err := ioutil.ReadAll(&limited)
+	body, err := io.ReadAll(&limited)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -126,7 +125,7 @@ func (ws *uiWebState) gerritEvent(w http.ResponseWriter, r *http.Request) {
 	teamID := pathParts[0]
 
 	limited := io.LimitedReader{R: r.Body, N: events.MaxEventPayloadSize}
-	body, err := ioutil.ReadAll(&limited)
+	body, err := io.ReadAll(&limited)
 	if err != nil {
 		ws.logger.Error("reading gerrit payload", zap.Error(err))
 		w.WriteHeader(http.StatusBadRequest)

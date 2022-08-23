@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -112,7 +111,7 @@ func (c *client) doGet(ctx context.Context, path string, query url.Values) (*htt
 		return resp, nil, errs.New("unexpected status code %d from query to %q: %s", resp.StatusCode, myURL, resp.Status)
 	}
 	bodyReader := newGerritMagicRemovingReader(resp.Body)
-	body, err := ioutil.ReadAll(bodyReader)
+	body, err := io.ReadAll(bodyReader)
 	if err != nil {
 		return resp, nil, errs.New("reading response body: %w", err)
 	}
