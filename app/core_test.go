@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/rand"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -842,4 +844,57 @@ func (stm *stringTrimMatcher) Matches(x interface{}) bool {
 
 func (stm *stringTrimMatcher) String() string {
 	return fmt.Sprintf("%q", stm.lines)
+}
+
+// Test that a non-max vote by a robot does not indicate that no more reviewers are needed
+func TestTeamReportsFiltering(t *testing.T) {
+	testData, err := os.Open("sample_change.json")
+	require.NoError(t, err)
+	sampleChangeInfoJSON, err := io.ReadAll(testData)
+	require.NoError(t, err)
+	var sampleChangeInfo []gerrit.ChangeInfo
+	err = json.Unmarshal(sampleChangeInfoJSON, &sampleChangeInfo)
+	require.NoError(t, err)
+
+	testWithMockChat(t, map[string]string{
+		"gerrit-address":                       "https://gerrit.jorts.io",
+		"remove-project-prefix":                "storj/",
+		"global-notify-channel":                "GLOBALNOTIFY",
+		"reports.testymctestface.timeofday":    time.Now().Add(-time.Second).UTC().Format("15:04:05.000"),
+		"reports.testymctestface.channel":      "channel2",
+		"reports.testymctestface.weekends":     "true",
+		"reports.testymctestface.gerrit-query": "abc 123 +fourfive -foo",
+	}, func(ts *testSystem) {
+		// reconfigure the report send time to half a second from now, so we don't have
+		// to wait too long in the test
+		triggerTime := time.Now().Add(500 * time.Millisecond).UTC()
+		ts.App.IncomingChatCommand(adminUserID, "dunno", true, "!config reports.testymctestface.timeofday "+triggerTime.Format("15:04:05.000"))
+
+		ctx, cancel := context.WithTimeout(ts.Ctx, 5*time.Second)
+		defer cancel()
+
+		ts.MockGerrit.EXPECT().
+			QueryChangesEx(gomock.Any(), gomock.Eq([]string{"abc 123 +fourfive -foo"}), gomock.AssignableToTypeOf(&gerrit.QueryChangesOpts{})).
+			Times(1).
+			Return(sampleChangeInfo, false, nil)
+
+		ts.MockGerrit.EXPECT().
+			URLForChange(gomock.AssignableToTypeOf(&gerrit.ChangeInfo{})).
+			Times(1).
+			DoAndReturn(func(change *gerrit.ChangeInfo) string {
+				return "https://some-gerrit-instance/" + change.ID
+			})
+
+		ts.MockChat.EXPECT().
+			SendChannelReport(gomock.Any(), gomock.Eq("channel2"), gomock.Eq("1 changesets waiting for review (0 waiting for over a week, 1 waiting for over a month)"), gomock.Len(1)).
+			Times(1).
+			DoAndReturn(func(_ context.Context, channelID, caption string, lines []string) (messages.MessageHandle, error) {
+				// don't need to continue the test
+				cancel()
+				return nil, nil
+			})
+
+		err := ts.App.PeriodicTeamReports(ctx, time.Now)
+		assert.Equal(t, context.Canceled, err)
+	})
 }
