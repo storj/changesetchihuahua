@@ -846,7 +846,7 @@ func (stm *stringTrimMatcher) String() string {
 	return fmt.Sprintf("%q", stm.lines)
 }
 
-// Test that a non-max vote by a robot does not indicate that no more reviewers are needed
+// Test that a non-max vote by a robot does not indicate that no more reviewers are needed.
 func TestTeamReportsFiltering(t *testing.T) {
 	testData, err := os.Open("sample_change.json")
 	require.NoError(t, err)

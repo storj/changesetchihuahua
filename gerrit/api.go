@@ -34,6 +34,7 @@ type client struct {
 	log           *zap.Logger
 }
 
+// OpenClient opens a Gerrit API client.
 func OpenClient(ctx context.Context, log *zap.Logger, serverURL string) (Client, error) {
 	urlObj, err := url.Parse(serverURL)
 	if err != nil {
@@ -60,12 +61,14 @@ func OpenClient(ctx context.Context, log *zap.Logger, serverURL string) (Client,
 	return client, nil
 }
 
+// Close closes a Gerrit API client.
 func (c *client) Close() error {
 	c.log.Debug("closing gerrit client")
 	c.httpClient.CloseIdleConnections()
 	return nil
 }
 
+// URLForChange returns the (canonical?) URL corresponding to a given change.
 func (c *client) URLForChange(change *ChangeInfo) string {
 	return c.makeURL(fmt.Sprintf("/c/%s/+/%d", url.PathEscape(change.Project), change.Number), nil)
 }
@@ -105,12 +108,12 @@ func (c *client) doGet(ctx context.Context, path string, query url.Values) (*htt
 		logger.Debug("Query failed", zap.Error(err))
 		return nil, nil, errs.New("could not query Gerrit: %v", err)
 	}
-	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		logger.Debug("Non-success from Gerrit", zap.Int("status-code", resp.StatusCode), zap.String("status-message", resp.Status))
 		return resp, nil, errs.New("unexpected status code %d from query to %q: %s", resp.StatusCode, myURL, resp.Status)
 	}
 	bodyReader := newGerritMagicRemovingReader(resp.Body)
+	defer func() { _ = bodyReader.Close() }()
 	body, err := io.ReadAll(bodyReader)
 	if err != nil {
 		return resp, nil, errs.New("reading response body: %w", err)
@@ -120,19 +123,25 @@ func (c *client) doGet(ctx context.Context, path string, query url.Values) (*htt
 }
 
 func (c *client) doGetString(ctx context.Context, path string, query url.Values) (string, error) {
-	_, bodyBytes, err := c.doGet(ctx, path, query)
+	resp, bodyBytes, err := c.doGet(ctx, path, query)
+	if resp != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
 	if err != nil {
 		return "", err
 	}
 	return string(bodyBytes), nil
 }
 
-func (c *client) doGetJSON(ctx context.Context, path string, query url.Values, v interface{}) (*http.Response, error) {
+func (c *client) doGetJSON(ctx context.Context, path string, query url.Values, v interface{}) error {
 	resp, bodyBytes, err := c.doGet(ctx, path, query)
-	if err != nil {
-		return resp, err
+	if resp != nil {
+		defer func() { _ = resp.Body.Close() }()
 	}
-	return resp, json.Unmarshal(bodyBytes, v)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(bodyBytes, v)
 }
 
 func (c *client) QueryChangesEx(ctx context.Context, queries []string, opts *QueryChangesOpts) (changes []ChangeInfo, more bool, err error) {
@@ -148,7 +157,7 @@ func (c *client) QueryChangesEx(ctx context.Context, queries []string, opts *Que
 	if opts.StartAt != 0 {
 		values.Set("S", strconv.Itoa(opts.StartAt))
 	}
-	if _, err := c.doGetJSON(ctx, "/changes/", values, &changes); err != nil {
+	if err := c.doGetJSON(ctx, "/changes/", values, &changes); err != nil {
 		return nil, false, errs.Wrap(err)
 	}
 
@@ -168,29 +177,29 @@ func (c *client) GetChangeEx(ctx context.Context, changeID string, opts *QueryCh
 	if labels := opts.assembleLabels(); len(labels) > 0 {
 		values["o"] = labels
 	}
-	_, err = c.doGetJSON(ctx, "/changes/"+url.PathEscape(changeID)+"/", values, &changeInfo)
+	err = c.doGetJSON(ctx, "/changes/"+url.PathEscape(changeID)+"/", values, &changeInfo)
 	return changeInfo, err
 }
 
 func (c *client) GetChangeReviewers(ctx context.Context, changeID string) (reviewers []ReviewerInfo, err error) {
-	_, err = c.doGetJSON(ctx, "/changes/"+url.PathEscape(changeID)+"/reviewers/", nil, &reviewers)
+	err = c.doGetJSON(ctx, "/changes/"+url.PathEscape(changeID)+"/reviewers/", nil, &reviewers)
 	return reviewers, err
 }
 
 func (c *client) GetPatchSetInfo(ctx context.Context, changeID, patchSetID string) (changeInfo ChangeInfo, err error) {
 	queryPath := fmt.Sprintf("/changes/%s/revisions/%s/review",
 		url.PathEscape(changeID), url.PathEscape(patchSetID))
-	_, err = c.doGetJSON(ctx, queryPath, nil, &changeInfo)
+	err = c.doGetJSON(ctx, queryPath, nil, &changeInfo)
 	return changeInfo, err
 }
 
 func (c *client) ListChangeMessages(ctx context.Context, changeID string) (changeMessages []ChangeMessageInfo, err error) {
-	_, err = c.doGetJSON(ctx, fmt.Sprintf("/changes/%s/messages", url.PathEscape(changeID)), nil, &changeMessages)
+	err = c.doGetJSON(ctx, fmt.Sprintf("/changes/%s/messages", url.PathEscape(changeID)), nil, &changeMessages)
 	return changeMessages, err
 }
 
 func (c *client) ListRevisionComments(ctx context.Context, changeID, revisionID string) (commentMap map[string][]CommentInfo, err error) {
-	_, err = c.doGetJSON(ctx, fmt.Sprintf("/changes/%s/revisions/%s/comments/", url.PathEscape(changeID), url.PathEscape(revisionID)), nil, &commentMap)
+	err = c.doGetJSON(ctx, fmt.Sprintf("/changes/%s/revisions/%s/comments/", url.PathEscape(changeID), url.PathEscape(revisionID)), nil, &commentMap)
 	return commentMap, err
 }
 
@@ -374,7 +383,7 @@ func (c *client) QueryAccountsEx(ctx context.Context, query string, opts *QueryA
 	if opts.StartAt != 0 {
 		values.Set("S", strconv.Itoa(opts.StartAt))
 	}
-	_, err = c.doGetJSON(ctx, "/accounts/", values, &users)
+	err = c.doGetJSON(ctx, "/accounts/", values, &users)
 	if err != nil {
 		return nil, false, errs.Wrap(err)
 	}
@@ -390,6 +399,8 @@ func (c *client) QueryAccounts(ctx context.Context, query string) ([]AccountInfo
 	return changes, err
 }
 
+// QueryAccountsOpts is a structure representing options that affect the behavior of
+// the QueryAccountsEx method on the Gerrit API client.
 type QueryAccountsOpts struct {
 	Limit             int
 	StartAt           int
@@ -416,7 +427,6 @@ func newGerritMagicRemovingReader(underlying io.ReadCloser) io.ReadCloser {
 		n, err := io.ReadFull(underlying, myBuf)
 		if err != nil {
 			_, _ = pipeWriter.Write(myBuf[:n])
-			_ = underlying.Close()
 			_ = pipeWriter.CloseWithError(err)
 			return
 		}
@@ -424,7 +434,6 @@ func newGerritMagicRemovingReader(underlying io.ReadCloser) io.ReadCloser {
 			_, _ = pipeWriter.Write(myBuf)
 		}
 		_, err = io.Copy(pipeWriter, underlying)
-		_ = underlying.Close()
 		_ = pipeWriter.CloseWithError(err)
 	}()
 	return pipeReader

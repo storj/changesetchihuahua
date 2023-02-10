@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"net/http"
 	"net/url"
@@ -24,6 +25,8 @@ import (
 
 var notificationTimeout = flag.Duration("notify-timeout", time.Minute*30, "Maximum amount of time to spend trying to deliver a notification")
 
+// Governor controls the Changeset Chihuahua functionality at a top level. It knows about
+// all registered teams.
 type Governor struct {
 	topContext context.Context
 	logger     *zap.Logger
@@ -35,6 +38,7 @@ type Governor struct {
 	teamFile     string
 }
 
+// Team is a Slack team that is registered with Changeset Chihuahua.
 type Team struct {
 	id        string
 	logger    *zap.Logger
@@ -50,6 +54,7 @@ func (v vanillaGerritConnector) OpenGerrit(ctx context.Context, logger *zap.Logg
 	return gerrit.OpenClient(ctx, logger, address)
 }
 
+// NewGovernor creates a new Governor.
 func NewGovernor(ctx context.Context, logger *zap.Logger, teamFile string) (*Governor, error) {
 	teamData, err := readTeamFile(teamFile)
 	if err != nil {
@@ -100,6 +105,9 @@ func readTeamFile(fileName string) (teamData map[string]string, err error) {
 	return teamData, nil
 }
 
+// NewTeam is called when a new Slack team is registered with Changeset Chihuahua. It adds the
+// team definition so that we will still have it after a restart, then creates a new Team
+// instance and calls Run on it.
 func (g *Governor) NewTeam(teamID string, setupData string) error {
 	g.teamsLock.Lock()
 	defer g.teamsLock.Unlock()
@@ -126,6 +134,8 @@ func (g *Governor) NewTeam(teamID string, setupData string) error {
 	return nil
 }
 
+// StartTeam is called at program start for already-registered teams. It creates the
+// appropriate Team instance and calls Run on it.
 func (g *Governor) StartTeam(teamID, setupData string) error {
 	g.teamsLock.Lock()
 	defer g.teamsLock.Unlock()
@@ -143,6 +153,9 @@ func (g *Governor) StartTeam(teamID, setupData string) error {
 	return nil
 }
 
+// Run takes care of all per-team functionality. It creates a Slack client for the team,
+// manages the database for team config and events, and arranges for periodic Gerrit
+// reports.
 func (t *Team) Run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -185,6 +198,8 @@ func (t *Team) Run(ctx context.Context) {
 	}
 }
 
+// GerritEventReceived is called when an event is received from Gerrit. The Governor determines
+// the appropriate Team and passes the event on to it.
 func (g *Governor) GerritEventReceived(teamID string, event events.GerritEvent) {
 	g.teamsLock.Lock()
 	team, ok := g.teams[teamID]
@@ -202,6 +217,8 @@ func (g *Governor) GerritEventReceived(teamID string, event events.GerritEvent) 
 	}()
 }
 
+// VerifyAndHandleChatEvent is called when an HTTP request is received which purports to be
+// from Slack. The request is verified, and if valid, is passed on to the appropriate Team.
 func (g *Governor) VerifyAndHandleChatEvent(header http.Header, messageBody []byte) (responseBytes []byte, err error) {
 	event, teamID, err := slack.VerifyEventMessage(header, messageBody)
 	if err != nil {
@@ -218,7 +235,7 @@ func (g *Governor) VerifyAndHandleChatEvent(header http.Header, messageBody []by
 
 	go func() {
 		err := team.teamApp.ChatEvent(g.topContext, event)
-		if err == slack.StopTeam {
+		if errors.Is(err, slack.ErrStopTeam) {
 			g.logger.Info("uninstalled from team", zap.String("team-id", teamID))
 			g.teamsLock.Lock()
 			delete(g.teams, teamID)
@@ -227,6 +244,8 @@ func (g *Governor) VerifyAndHandleChatEvent(header http.Header, messageBody []by
 			if err := team.teamApp.Close(); err != nil {
 				g.logger.Info("failed to close team", zap.String("team-id", teamID), zap.Error(err))
 			}
+		} else {
+			g.logger.Error("Unexpected error from teamApp.ChatEvent", zap.Error(err))
 		}
 	}()
 	return nil, nil
@@ -249,6 +268,7 @@ func (g *Governor) appendTeamDefinition(teamID, setupData string) (err error) {
 	return nil
 }
 
+// Close shuts down functionality for a Team.
 func (t *Team) Close() error {
 	t.canceler()
 	return t.teamApp.Close()

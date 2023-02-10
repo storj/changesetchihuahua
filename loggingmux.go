@@ -6,11 +6,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// LoggingMux is an http server mixin which logs HTTP requests.
 type LoggingMux struct {
 	*http.ServeMux
 	logger *zap.Logger
 }
 
+// NewLoggingMux creates a new LoggingMux.
 func NewLoggingMux(logger *zap.Logger) *LoggingMux {
 	mux := http.NewServeMux()
 	return &LoggingMux{ServeMux: mux, logger: logger}

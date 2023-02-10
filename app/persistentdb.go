@@ -34,6 +34,7 @@ var (
 	buildLifetimeDays = flag.Int("build-lifetime-days", 7, "Builds on patchsets older than this many days will not have their announcements inline-annotated with new build statuses")
 )
 
+// PersistentDB represents a persistent database attached to a specific team.
 type PersistentDB struct {
 	logger *zap.Logger
 	db     *dbx.DB
@@ -45,6 +46,7 @@ type PersistentDB struct {
 	pruneCancel context.CancelFunc
 }
 
+// NewPersistentDB creates a new PersistentDB instance.
 func NewPersistentDB(logger *zap.Logger, dbSource string) (*PersistentDB, error) {
 	db, err := initializePersistentDB(logger, dbSource)
 	if err != nil {
@@ -111,7 +113,7 @@ func initializePersistentDB(logger *zap.Logger, dbSource string) (*dbx.DB, error
 	migrator.Log = newMigrateLogWrapper(logger)
 
 	if err := migrator.Up(); err != nil {
-		if err != migrate.ErrNoChange {
+		if !errors.Is(err, migrate.ErrNoChange) {
 			return nil, err
 		}
 	}
@@ -119,6 +121,7 @@ func initializePersistentDB(logger *zap.Logger, dbSource string) (*dbx.DB, error
 	return db, nil
 }
 
+// Close closes a PersistentDB.
 func (ud *PersistentDB) Close() error {
 	ud.pruneCancel()
 	return ud.db.Close()
@@ -143,6 +146,8 @@ func (ud *PersistentDB) pruneJob(ctx context.Context) {
 	}
 }
 
+// LookupGerritUser checks whether this PersistentDB already knows about the specified Gerrit
+// username, and if so, what do we know about it.
 func (ud *PersistentDB) LookupGerritUser(ctx context.Context, gerritUsername string) (*dbx.GerritUser, error) {
 	ud.dbLock.Lock()
 	defer ud.dbLock.Unlock()
@@ -150,6 +155,8 @@ func (ud *PersistentDB) LookupGerritUser(ctx context.Context, gerritUsername str
 	return ud.db.Get_GerritUser_By_GerritUsername(ctx, dbx.GerritUser_GerritUsername(gerritUsername))
 }
 
+// LookupChatIDForGerritUser tries to determine the corresponding chat ID for a given Gerrit
+// username. A cache is checked first, then the persistent DB is checked if necessary.
 func (ud *PersistentDB) LookupChatIDForGerritUser(ctx context.Context, gerritUsername string) (string, error) {
 	// check cache
 	ud.cacheLock.RLock()
@@ -173,6 +180,8 @@ func (ud *PersistentDB) LookupChatIDForGerritUser(ctx context.Context, gerritUse
 	return chatID, nil
 }
 
+// AssociateChatIDWithGerritUser associates a chat ID with a Gerrit username, storing that
+// association in the persistent DB for future reference.
 func (ud *PersistentDB) AssociateChatIDWithGerritUser(ctx context.Context, gerritUsername, chatID string) error {
 	err := func() error {
 		ud.dbLock.Lock()
@@ -194,6 +203,8 @@ func (ud *PersistentDB) AssociateChatIDWithGerritUser(ctx context.Context, gerri
 	return nil
 }
 
+// GetAllUsersWhoseLastReportWasBefore gets all users whose last report was before the
+// specified time.
 func (ud *PersistentDB) GetAllUsersWhoseLastReportWasBefore(ctx context.Context, t time.Time) ([]*dbx.GerritUser, error) {
 	ud.dbLock.Lock()
 	defer ud.dbLock.Unlock()
@@ -201,6 +212,7 @@ func (ud *PersistentDB) GetAllUsersWhoseLastReportWasBefore(ctx context.Context,
 	return ud.db.All_GerritUser_By_LastReport_Less(ctx, dbx.GerritUser_LastReport(t))
 }
 
+// UpdateLastReportTime updates the stored last report time for a given Gerrit username.
 func (ud *PersistentDB) UpdateLastReportTime(ctx context.Context, gerritUsername string, when time.Time) error {
 	ud.dbLock.Lock()
 	defer ud.dbLock.Unlock()
@@ -210,6 +222,9 @@ func (ud *PersistentDB) UpdateLastReportTime(ctx context.Context, gerritUsername
 		dbx.GerritUser_Update_Fields{LastReport: dbx.GerritUser_LastReport(when)})
 }
 
+// IdentifyNewInlineComments accepts a map of comment_id to time, and determines which of them
+// are already known in the database. Those which are not already known are inserted into the
+// inline_comments table with their associated times.
 func (ud *PersistentDB) IdentifyNewInlineComments(ctx context.Context, commentsByID map[string]time.Time) (err error) {
 	if len(commentsByID) == 0 {
 		return nil
@@ -255,6 +270,8 @@ func (ud *PersistentDB) IdentifyNewInlineComments(ctx context.Context, commentsB
 	return nil
 }
 
+// GetPatchSetAnnouncements looks up all announcements made about a particular patchset on a particular
+// change, and returns the associated message handle(s).
 func (ud *PersistentDB) GetPatchSetAnnouncements(ctx context.Context, projectName string, changeNum, patchSetNum int) ([]string, error) {
 	rows, err := ud.db.All_PatchsetAnnouncement_MessageHandle_By_ProjectName_And_ChangeNum_And_PatchsetNum(
 		ctx,
@@ -271,6 +288,8 @@ func (ud *PersistentDB) GetPatchSetAnnouncements(ctx context.Context, projectNam
 	return handles, nil
 }
 
+// RecordPatchSetAnnouncements records making announcements about a particular patchset on a particular
+// change, so they can be looked up later by GetPatchSetAnnouncements.
 func (ud *PersistentDB) RecordPatchSetAnnouncements(ctx context.Context, projectName string, changeNum, patchSetNum int, announcementHandles []string) error {
 	var allErrors error
 	for _, handle := range announcementHandles {
@@ -284,6 +303,7 @@ func (ud *PersistentDB) RecordPatchSetAnnouncements(ctx context.Context, project
 	return allErrors
 }
 
+// GetAllConfigItems gets all config items for this team and returns them as a map of config key to config value.
 func (ud *PersistentDB) GetAllConfigItems(ctx context.Context) (map[string]string, error) {
 	ud.dbLock.Lock()
 	defer ud.dbLock.Unlock()
@@ -299,6 +319,9 @@ func (ud *PersistentDB) GetAllConfigItems(ctx context.Context) (map[string]strin
 	return itemsMap, nil
 }
 
+// GetConfig gets the value of a config item for this team and returns it as a string. If the
+// config item does not exist or can not be read, defaultValue is returned instead, along with
+// any error encountered along the way.
 func (ud *PersistentDB) GetConfig(ctx context.Context, key, defaultValue string) (string, error) {
 	ud.dbLock.Lock()
 	defer ud.dbLock.Unlock()
@@ -313,6 +336,9 @@ func (ud *PersistentDB) GetConfig(ctx context.Context, key, defaultValue string)
 	return value.ConfigValue, nil
 }
 
+// JustGetConfig gets the value of a config item for this team and returns it as a string. If the
+// config item does not exist, defaultValue is returned instead. If the config item can not be read,
+// the error is logged, and defaultValue is returned.
 func (ud *PersistentDB) JustGetConfig(ctx context.Context, key, defaultValue string) string {
 	val, err := ud.GetConfig(ctx, key, defaultValue)
 	if err != nil {
@@ -321,6 +347,9 @@ func (ud *PersistentDB) JustGetConfig(ctx context.Context, key, defaultValue str
 	return val
 }
 
+// GetConfigInt gets the value of a config item for this team, parses it as an integer, and returns
+// the value. If the config item does not exist or can not be read or parsed as an integer,
+// defaultValue is returned instead, along with any error encountered along the way.
 func (ud *PersistentDB) GetConfigInt(ctx context.Context, key string, defaultValue int) (int, error) {
 	val, err := ud.GetConfig(ctx, key, "")
 	if err != nil || val == "" {
@@ -333,6 +362,10 @@ func (ud *PersistentDB) GetConfigInt(ctx context.Context, key string, defaultVal
 	return int(numVal), nil
 }
 
+// JustGetConfigInt gets the value of a config item for this team, parses it as an integer, and
+// returns the value. If the config item does not exist, defaultValue is returned instead. If the
+// config item can not be read or parsed as an integer, the error is logged, and defaultValue is
+// returned.
 func (ud *PersistentDB) JustGetConfigInt(ctx context.Context, key string, defaultValue int) int {
 	val, err := ud.GetConfigInt(ctx, key, defaultValue)
 	if err != nil {
@@ -341,6 +374,9 @@ func (ud *PersistentDB) JustGetConfigInt(ctx context.Context, key string, defaul
 	return val
 }
 
+// GetConfigBool gets the value of a config item for this team, parses it as a boolean, and returns
+// the value. If the config item does not exist or can not be read or parsed as a boolean,
+// defaultValue is returned instead, along with any error encountered along the way.
 func (ud *PersistentDB) GetConfigBool(ctx context.Context, key string, defaultValue bool) (bool, error) {
 	val, err := ud.GetConfig(ctx, key, "")
 	if err != nil || val == "" {
@@ -356,6 +392,10 @@ func (ud *PersistentDB) GetConfigBool(ctx context.Context, key string, defaultVa
 	return defaultValue, fmt.Errorf("invalid boolean value %q", val)
 }
 
+// JustGetConfigBool gets the value of a config item for this team, parses it as a boolean, and
+// returns the value. If the config item does not exist, defaultValue is returned instead. If the
+// config item can not be read or parsed as a boolean, the error is logged, and defaultValue is
+// returned.
 func (ud *PersistentDB) JustGetConfigBool(ctx context.Context, key string, defaultValue bool) bool {
 	val, err := ud.GetConfigBool(ctx, key, defaultValue)
 	if err != nil {
@@ -364,6 +404,8 @@ func (ud *PersistentDB) JustGetConfigBool(ctx context.Context, key string, defau
 	return val
 }
 
+// GetConfigWildcard gets all config items and their associated values where the config items match
+// the specified LIKE pattern. The items are returned as a map of config key to config value.
 func (ud *PersistentDB) GetConfigWildcard(ctx context.Context, pattern string) (items map[string]string, err error) {
 	ud.dbLock.Lock()
 	defer ud.dbLock.Unlock()
@@ -400,6 +442,10 @@ func (ud *PersistentDB) GetConfigWildcard(ctx context.Context, pattern string) (
 	return items, nil
 }
 
+// JustGetConfigWildcard gets all config items and their associated values where the config items
+// match the specified LIKE pattern. The items are returned as a map of config key to config value.
+// If an error is encountered trying to read the config items, the error is logged, and a nil map
+// is returned.
 func (ud *PersistentDB) JustGetConfigWildcard(ctx context.Context, pattern string) map[string]string {
 
 	items, err := ud.GetConfigWildcard(ctx, pattern)
@@ -410,6 +456,7 @@ func (ud *PersistentDB) JustGetConfigWildcard(ctx context.Context, pattern strin
 	return items
 }
 
+// SetConfig stores a config item with the specified value.
 func (ud *PersistentDB) SetConfig(ctx context.Context, key, value string) error {
 	ud.dbLock.Lock()
 	defer ud.dbLock.Unlock()
@@ -421,10 +468,13 @@ func (ud *PersistentDB) SetConfig(ctx context.Context, key, value string) error 
 	return err
 }
 
+// SetConfigInt stores a config item with the specified value, encoded as a decimal integer.
 func (ud *PersistentDB) SetConfigInt(ctx context.Context, key string, value int) error {
 	return ud.SetConfig(ctx, key, strconv.FormatInt(int64(value), 32))
 }
 
+// Prune removes all records of old patchset announcements and inline comments, so the db does
+// not grow indefinitely.
 func (ud *PersistentDB) Prune(ctx context.Context, now time.Time) error {
 	deleteInlineCommentsBefore := now.Add(-2 * *inlineCommentMaxAge)
 	_, err := ud.db.Delete_InlineComment_By_UpdatedAt_Less(ctx, dbx.InlineComment_UpdatedAt(deleteInlineCommentsBefore))

@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	// Version defines the version of Changeset Chihuahua.
 	Version = "0.0.1"
 )
 

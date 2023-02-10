@@ -86,6 +86,7 @@ type LabelInfo struct {
 	Values map[string]string
 }
 
+// ApprovalInfo describes an approval vote by a user on a changeset.
 type ApprovalInfo struct {
 	AccountInfo
 
@@ -550,6 +551,7 @@ type CommentRange struct {
 	EndCharacter int `json:"end_character"`
 }
 
+// TimeLayout is the expected format of timestamps from Gerrit.
 const TimeLayout = "2006-01-02 15:04:05.000000000"
 
 // ParseTimestamp converts a timestamp from the Gerrit API to a time.Time in UTC.
@@ -565,8 +567,11 @@ func ParseTimestamp(timeStamp string) time.Time {
 // being either a number or the string "edit".
 type PatchSetNumber int
 
+// PatchSetIsEdit means that the value of the patchset number field was "edit" instead of
+// an integer.
 const PatchSetIsEdit PatchSetNumber = -1
 
+// UnmarshalJSON defines how this type is unmarshaled from JSON.
 func (p *PatchSetNumber) UnmarshalJSON(b []byte) error {
 	jsonStr := string(b)
 	if jsonStr == "null" {

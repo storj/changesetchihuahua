@@ -25,13 +25,14 @@ import (
 )
 
 const (
-	// default hour (in 24-hour time) in each user's local time zone when their personal
-	// work needed report will be sent to them
+	// defaultPersonalReportHour is the default hour (in 24-hour time) in each user's local time
+	// zone when their personal work needed report will be sent to them.
 	defaultPersonalReportHour = 11
-	// Gerrit query to use for determining change sets with work needed for a team report,
-	// unless the team report is otherwise configured
+	// defaultWorkNeededQuery is the Gerrit query to use for determining change sets with work
+	// needed for a team report, unless the team report is otherwise configured.
 	defaultWorkNeededQuery = "is:open -is:wip -label:Code-Review=-2 -label:Verified=-1"
-	// Gerrit query to use for determining change sets with reviews needed for a particular user
+	// defaultPerUserReviewsNeededQuery is the Gerrit query to use for determining change sets
+	// with reviews needed for a particular user.
 	defaultPerUserReviewsNeededQuery = "reviewer:\"$username\" is:open -reviewedby:\"$username\" -owner:\"$username\" -is:wip -label:Verified=-1"
 )
 
@@ -58,11 +59,17 @@ type gerritConnector interface {
 type configItemType int
 
 const (
+	// ConfigItemString indicates a config item that is expected to be a string.
 	ConfigItemString = configItemType(iota)
+	// ConfigItemInt indicates a config item that is expected to be an integer.
 	ConfigItemInt
+	// ConfigItemChannel indicates a config item that is expected to be a chat channel.
 	ConfigItemChannel
+	// ConfigItemUserList indicates a config item that is expected to be a list of user chat IDs.
 	ConfigItemUserList
+	// ConfigItemLink indicates a config item that is expected to be a URL.
 	ConfigItemLink
+	// ConfigItemBool indicates a config item that is expected to be a boolean.
 	ConfigItemBool
 )
 
@@ -89,6 +96,7 @@ var configItems = []configItem{
 	{Name: "reports.*.channel", Description: "The channel to which the named report will be sent, noting which change sets have been waiting too long and who they're waiting for", ItemType: ConfigItemChannel, IsWildcard: true},
 }
 
+// App represents the Changeset Chihuahua application for a particular team.
 type App struct {
 	logger       *zap.Logger
 	chat         slack.EventedChatSystem
@@ -109,6 +117,7 @@ type App struct {
 	removeProjectPrefix string
 }
 
+// New creates a new App instance.
 func New(ctx context.Context, logger *zap.Logger, chat slack.EventedChatSystem, chatFormatter messages.ChatSystemFormatter, persistentDB *PersistentDB, gerritConnector gerritConnector) *App {
 	app := &App{
 		logger:             logger,
@@ -165,7 +174,7 @@ func (a *App) initializeGerrit(ctx context.Context) error {
 	return nil
 }
 
-// waitGroup is a more errgroup.Group-like interface to sync.WaitGroup
+// waitGroup is a more errgroup.Group-like interface to sync.WaitGroup.
 type waitGroup struct {
 	sync.WaitGroup
 }
@@ -180,6 +189,7 @@ func (w *waitGroup) Go(f func()) {
 
 const chatCommandHandlingTimeout = time.Minute * 10
 
+// Close closes an App, freeing its resources.
 func (a *App) Close() error {
 	err := a.persistentDB.Close()
 	a.gerritLock.Lock()
@@ -197,6 +207,7 @@ func (a *App) getGerritClient() gerrit.Client {
 	return a.gerritHandle
 }
 
+// GerritEvent is called when a Gerrit event has been received related to this team.
 func (a *App) GerritEvent(ctx context.Context, event events.GerritEvent) {
 	if a.getGerritClient() == nil {
 		a.logger.Info("dropping event, no gerrit client", zap.String("event-type", event.GetType()))
@@ -233,16 +244,17 @@ func (a *App) GerritEvent(ctx context.Context, event events.GerritEvent) {
 	}
 }
 
+// ChatEvent is called when a chat event has been received related to this team.
 func (a *App) ChatEvent(ctx context.Context, eventObj slack.ChatEvent) error {
 	err := a.chat.HandleEvent(ctx, eventObj)
 	if err != nil {
-		if err == slack.StopTeam {
+		if errors.Is(err, slack.ErrStopTeam) {
 			a.logger.Info("uninstalled. shutting down app for team")
 			err = a.Close()
 			if err != nil {
 				a.logger.Error("failed to shut down app for team")
 			}
-			return slack.StopTeam
+			return slack.ErrStopTeam
 		}
 		a.logger.Error("failed to handle event from chat system", zap.Error(err))
 	}
@@ -461,6 +473,8 @@ func (a *App) setConfigItem(ctx context.Context, key, value string) error {
 	return nil
 }
 
+// ConfigureGerritServer updates the Gerrit server being used for this team, opening a new
+// Gerrit client. If there is already a Gerrit client handle open, it is closed first.
 func (a *App) ConfigureGerritServer(ctx context.Context, gerritAddress string) error {
 	a.gerritLock.Lock()
 	defer a.gerritLock.Unlock()
@@ -557,7 +571,7 @@ func (a *App) findReviewMessageID(ctx context.Context, changeID string, patchSet
 // closest to the time of the specified event that adds the specified user as a reviewer to the
 // specified change. This isn't 100% guaranteed accurate, but should be sufficient.
 //
-// *HEURISTICS
+// TODO: See if we can get rid of these heuristics with data from newer Gerrit versions.
 func (a *App) findReviewerUpdateRecord(ctx context.Context, changeID, reviewerUsername string, eventTime time.Time) (gerrit.ReviewerUpdateInfo, error) {
 	changeInfo, err := a.getGerritClient().GetChangeEx(ctx, changeID, &gerrit.QueryChangesOpts{
 		DescribeDetailedAccounts: true,
@@ -591,7 +605,7 @@ func (a *App) findReviewerUpdateRecord(ctx context.Context, changeID, reviewerUs
 // and the time recorded for this message may not be exactly the same as the time for the received
 // event, so finding the closest one is the best we can do.
 //
-// *HEURISTICS
+// TODO: See if we can get rid of these heuristics with data from newer Gerrit versions.
 func (a *App) pickBestMatchMessage(revisionNum int, authorUsername string, sentTime time.Time, topMessage string, messages []gerrit.ChangeMessageInfo) (*gerrit.ChangeMessageInfo, error) {
 	var matches []*gerrit.ChangeMessageInfo
 	for i, message := range messages {
@@ -758,6 +772,7 @@ func (a *App) CommentAdded(ctx context.Context, author events.Account, change ev
 	})
 }
 
+// VoteDeleted is called when a Gerrit vote has been deleted.
 func (a *App) VoteDeleted(ctx context.Context, reviewer events.Account, remover events.Account, change events.Change, patchSet events.PatchSet, approval events.Approval) {
 	owner := &change.Owner
 	removerLink := a.prepareUserLink(ctx, &remover)
@@ -838,6 +853,7 @@ var (
 	buildFailedRegexp     = regexp.MustCompile(`^Patch Set [1-9][0-9]*: +(?:[_A-Za-z0-9 ][-_A-Za-z0-9 ]*-[0-9]+|-[_A-Za-z0-9 ][-_A-Za-z0-9 ]*)\n *\nBuild Failed *\n *\n(https?:\S+) : (FAILURE|ABORTED)\s*$`)
 )
 
+// JenkinsRobotCommentAdded is called when the Jenkins robot adds a comment to a Gerrit change.
 func (a *App) JenkinsRobotCommentAdded(ctx context.Context, change events.Change, patchSet events.PatchSet, comment string) bool {
 	var link string
 	var msgType string
@@ -1294,6 +1310,7 @@ type reportConfig struct {
 	SendOnWeekends bool
 }
 
+// PeriodicTeamReports schedules and issues all configured periodic team Gerrit reports.
 func (a *App) PeriodicTeamReports(ctx context.Context, getTime func() time.Time) error {
 	timeToNext, nextReports := a.nextTeamReport(ctx, getTime())
 	a.logger.Debug("calculated next reports", zap.Duration("timer", timeToNext), zap.Any("reports", nextReports))
@@ -1435,6 +1452,7 @@ func (a *App) getTeamReportConfigPartial(ctx context.Context, reportName string,
 	return nil
 }
 
+// PeriodicPersonalReports schedules and issues all personal Gerrit reports.
 func (a *App) PeriodicPersonalReports(ctx context.Context, getTime func() time.Time) error {
 	// this is similar to time.Ticker, but should always run close to the top of the UTC hour.
 	now := getTime()
@@ -1456,6 +1474,7 @@ func (a *App) PeriodicPersonalReports(ctx context.Context, getTime func() time.T
 	}
 }
 
+// TeamReport builds and sends a team Gerrit report.
 func (a *App) TeamReport(ctx context.Context, t time.Time, config reportConfig) {
 	defer func() {
 		rec := recover()
@@ -1633,6 +1652,7 @@ changeLoop:
 	}
 }
 
+// PersonalReports builds and issues personal Gerrit reports to all users who are due for reports.
 func (a *App) PersonalReports(ctx context.Context, t time.Time) {
 	// a big dumb hammer to keep multiple calls to this from stepping on each other. this is
 	// necessary since we allow calls from places other than PeriodicPersonalReports() for

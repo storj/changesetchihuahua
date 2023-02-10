@@ -71,8 +71,9 @@ type Change struct {
 	AllReviewers []Account `json:"allReviewers"`
 }
 
-// The bare Change-ID value is not always enough to identify a unique change. According to the
-// Gerrit docs, this is the best supported unique identifier, and others are deprecated.
+// BestID is the best supported unique identifier for a change. The bare Change-ID value is not
+// always enough to identify a unique change, according to the Gerrit docs, so this is the best
+// supported unique identifier, and other styles of identifier are deprecated.
 func (c *Change) BestID() string {
 	return c.Project + "~" + strconv.Itoa(c.Number)
 }

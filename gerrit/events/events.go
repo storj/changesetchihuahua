@@ -8,6 +8,7 @@ import (
 )
 
 var (
+	// EventDecodingError wraps errors encountered during event decoding.
 	EventDecodingError = errs.Class("event decoding error")
 )
 
@@ -28,14 +29,17 @@ type Base struct {
 	EventCreatedOn int64 `json:"eventCreatedOn"`
 }
 
+// GetType returns the type of the event.
 func (g *Base) GetType() string {
 	return g.Type
 }
 
+// EventCreatedAt returns the type at which the event was created.
 func (g *Base) EventCreatedAt() time.Time {
 	return UnixInt64Time(g.EventCreatedOn)
 }
 
+// DecodeGerritEvent decodes a gerrit event from JSON to a GerritEvent structure.
 func DecodeGerritEvent(eventJSON []byte) (GerritEvent, error) {
 	var eventType Base
 	if err := json.Unmarshal(eventJSON, &eventType); err != nil {

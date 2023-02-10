@@ -15,7 +15,7 @@ func doPersistentDBTest(t *testing.T, f func(ctx context.Context, d *PersistentD
 	db, err := NewPersistentDB(zaptest.NewLogger(t), "sqlite:"+dbFile)
 	require.NoError(t, err)
 	require.NotNil(t, db)
-	defer func(){ require.NoError(t, db.Close()) }()
+	defer func() { require.NoError(t, db.Close()) }()
 
 	f(context.Background(), db)
 }

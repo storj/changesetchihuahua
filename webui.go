@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -66,10 +67,11 @@ func (ws *uiWebState) HandleChatEvent(w http.ResponseWriter, r *http.Request) {
 	responseBytes, err := ws.governor.VerifyAndHandleChatEvent(r.Header, body)
 	if err != nil {
 		logger := ws.logger.With(zap.Error(err), zap.Any("headers", r.Header), zap.ByteString("event-body", body))
-		if _, ok := err.(*slack.BadEvent); ok {
+		var badEvent *slack.BadEvent
+		if errors.As(err, &badEvent) {
 			logger.Info("Bad chat event received")
 			w.WriteHeader(http.StatusBadRequest)
-		} else if err == slack.VerifyError {
+		} else if errors.Is(err, slack.ErrVerifyFailed) {
 			logger.Warn("Could not verify event")
 			w.WriteHeader(http.StatusUnauthorized)
 		} else {

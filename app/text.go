@@ -44,6 +44,6 @@ func applyStringTransformerSubst(s, transformer string) (string, error) {
 		result = transformerRegexp.ExpandString(result, replaceString, s, subMatches)
 		restOfString = subMatches[1]
 	}
-	result = append(result, []byte(s[restOfString:len(s)])...)
+	result = append(result, []byte(s[restOfString:])...)
 	return string(result), nil
 }

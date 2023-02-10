@@ -23,13 +23,18 @@ import (
 )
 
 var (
-	ClientID      = flag.String("slack-client-id", "13639549360.893676519079", "ID issued to this app by Slack")
-	ClientSecret  = flag.String("slack-client-secret", "", "Client secret issued to this app by Slack")
+	// ClientID is the ID issued to this app by Slack.
+	ClientID = flag.String("slack-client-id", "13639549360.893676519079", "ID issued to this app by Slack")
+	// ClientSecret is the secret issued to this app by Slack.
+	ClientSecret = flag.String("slack-client-secret", "", "Client secret issued to this app by Slack")
+	// SigningSecret is the signing secret issued to this app by Slack.
 	SigningSecret = flag.String("slack-signing-secret", "", "Signing secret issued to this app by Slack")
+	// debugSlackLib indicates whether to log debug information from the Slack client library.
 	debugSlackLib = flag.Bool("debug-slack-lib", false, "Log debug information from Slack client library")
 )
 
 const (
+	// AddToSlackButton contains the HTML to create the appropriate "Add To Slack" button for this application.
 	AddToSlackButton = `<a href="%s"><img alt="Add to Slack" height="40" width="139" src="https://platform.slack-edge.com/img/add_to_slack.png" srcset="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x" /></a>`
 
 	slackAuthURL = "https://slack.com/oauth/v2/authorize"
@@ -51,15 +56,18 @@ var appScopes = []string{
 
 var userScopes = []string{}
 
+// BadEvent is an error type returned when a request from the chat system can not be parsed.
 type BadEvent struct {
 	problem string
 }
 
+// Error returns the text of the error.
 func (e *BadEvent) Error() string {
 	return e.problem
 }
 
-var VerifyError = errors.New("verify error")
+// ErrVerifyFailed is the error returned when a request can not be verified as coming from the chat system.
+var ErrVerifyFailed = errors.New("verify error")
 
 type slackInterface struct {
 	api *slack.Client
@@ -78,22 +86,25 @@ type logWrapper struct {
 	*zap.Logger
 }
 
-// log all github.com/slack-go/slack messages at Debug level
+// Output logs all github.com/slack-go/slack messages at Debug level.
 func (lw logWrapper) Output(callDepth int, s string) error {
 	lw.WithOptions(zap.AddCallerSkip(callDepth)).Debug(s)
 	return nil
 }
 
+// ChatEvent encapsulates a chat system event, to avoid leaking Slack implementation details.
 type ChatEvent struct {
 	slackEvent *slackevents.EventsAPIEvent
 }
 
+// EventedChatSystem is the interface implemented by chat systems that have events to process.
 type EventedChatSystem interface {
 	messages.ChatSystem
 
 	HandleEvent(ctx context.Context, event ChatEvent) error
 }
 
+// NewSlackInterface creates an EventedChatSystem instance for a Slack server.
 func NewSlackInterface(logger *zap.Logger, setupData string) (EventedChatSystem, error) {
 	var oauthData slack.OAuthV2Response
 	if err := json.Unmarshal([]byte(setupData), &oauthData); err != nil {
@@ -128,8 +139,8 @@ func (s *slackInterface) UnmarshalMessageHandle(handleJSON string) (messages.Mes
 	return &mh, nil
 }
 
-// StopTeam is returned by HandleEvent when the app has been uninstalled from that team.
-var StopTeam = errors.New("stop this team")
+// ErrStopTeam is returned by HandleEvent when the app has been uninstalled from that team.
+var ErrStopTeam = errors.New("stop this team")
 
 func (s *slackInterface) HandleEvent(ctx context.Context, event ChatEvent) (err error) {
 	s.logger.Debug("received slack event", zap.String("event-type", event.slackEvent.Type))
@@ -140,7 +151,7 @@ func (s *slackInterface) HandleEvent(ctx context.Context, event ChatEvent) (err 
 		case *slackevents.MessageEvent:
 			return s.handleMessage(ctx, ev)
 		case *slackevents.AppUninstalledEvent:
-			return StopTeam
+			return ErrStopTeam
 		default:
 			s.logger.Debug("inner event type not recognized", zap.String("event-datatype", fmt.Sprintf("%T", innerEvent.Data)))
 		}
@@ -150,12 +161,12 @@ func (s *slackInterface) HandleEvent(ctx context.Context, event ChatEvent) (err 
 	return nil
 }
 
+// HandleNoTeamEvent is called when a Slack event is received that is not associated with a specific team.
 func HandleNoTeamEvent(ctx context.Context, event ChatEvent) (responseBytes []byte) {
 	if event.slackEvent == nil {
 		return nil
 	}
-	switch ev := event.slackEvent.Data.(type) {
-	case *slackevents.EventsAPIURLVerificationEvent:
+	if ev, ok := event.slackEvent.Data.(*slackevents.EventsAPIURLVerificationEvent); ok {
 		return []byte(ev.Challenge)
 	}
 	return nil
@@ -326,6 +337,7 @@ func (s *slackInterface) InformBuildAborted(ctx context.Context, mh messages.Mes
 	return s.api.AddReactionContext(ctx, "no_entry_sign", slack.NewRefToMessage(mhObj.Channel, mhObj.Timestamp))
 }
 
+// GetOAuthV2Token issues a call to Slack to get a OAuth V2 token.
 func GetOAuthV2Token(ctx context.Context, clientID, clientSecret, code, redirectURI string) (resp *slack.OAuthV2Response, err error) {
 	return slack.GetOAuthV2ResponseContext(ctx, http.DefaultClient, clientID, clientSecret, code, redirectURI)
 }
@@ -354,11 +366,15 @@ func postForm(ctx context.Context, endpoint string, values url.Values, intf inte
 	return nil
 }
 
+// OAuthV2ResponseTeam is the structure of a team definition as returned by Slack as part of
+// an OAuthV2Response.
 type OAuthV2ResponseTeam struct {
 	Name string `json:"name"`
 	ID   string `json:"id"`
 }
 
+// OAuthV2ResponseUser is the structure of a user definition as returned by Slack as part of
+// an OAuthV2Response.
 type OAuthV2ResponseUser struct {
 	ID          string `json:"id"`
 	Scope       string `json:"scope"`
@@ -366,6 +382,7 @@ type OAuthV2ResponseUser struct {
 	TokenType   string `json:"token_type"`
 }
 
+// OAuthV2Response is the structure of the JSON Slack provides as OAuth authentication for a team.
 type OAuthV2Response struct {
 	AccessToken string              `json:"access_token"`
 	TokenType   string              `json:"token_type"`
@@ -382,41 +399,51 @@ func escapeText(t string) string {
 	return slackutilsx.EscapeMessage(t)
 }
 
+// Formatter defines how messages can be formatted on Slack.
 type Formatter struct{}
 
+// FormatBold formats a message as bold according to Slack syntax.
 func (f *Formatter) FormatBold(msg string) string {
 	return "*" + msg + "*"
 }
 
+// FormatItalic formats a message in italics according to Slack syntax.
 func (f *Formatter) FormatItalic(msg string) string {
 	return "_" + msg + "_"
 }
 
+// FormatBlockQuote formats a message (line or paragraph) as a block quote, according to Slack syntax.
 func (f *Formatter) FormatBlockQuote(msg string) string {
 	lines := strings.Split(msg, "\n")
 	return "> " + strings.Join(lines, "\n> ")
 }
 
+// FormatChangeLink formats a link to a Gerrit change according to Slack syntax.
 func (f *Formatter) FormatChangeLink(project string, number int, url, subject string) string {
 	return fmt.Sprintf("[%s@%d] %s", escapeText(project), number, f.FormatLink(url, subject))
 }
 
+// FormatUserLink formats a reference to a user chat ID.
 func (f *Formatter) FormatUserLink(chatID string) string {
 	return fmt.Sprintf("<@%s>", chatID)
 }
 
+// FormatChannelLink formats a reference to a channel ID.
 func (f *Formatter) FormatChannelLink(channelID string) string {
 	return fmt.Sprintf("<#%s>", channelID)
 }
 
+// FormatLink formats an arbitrary link with the given text according to Slack syntax.
 func (f *Formatter) FormatLink(url, text string) string {
 	return fmt.Sprintf("<%s|%s>", url, escapeText(text))
 }
 
+// FormatCode formats text as fixed-width (like a code listing) according to Slack syntax.
 func (f *Formatter) FormatCode(text string) string {
 	return fmt.Sprintf("`%s`", escapeText(text))
 }
 
+// UnwrapUserLink accepts a formatted user link and returns the chat ID of the associated user.
 func (f *Formatter) UnwrapUserLink(userLink string) string {
 	if len(userLink) > 3 && userLink[0] == '<' && userLink[1] == '@' && userLink[len(userLink)-1] == '>' {
 		return userLink[2 : len(userLink)-1]
@@ -424,6 +451,7 @@ func (f *Formatter) UnwrapUserLink(userLink string) string {
 	return ""
 }
 
+// UnwrapChannelLink accepts a formatted channel link and returns the associated channel ID.
 func (f *Formatter) UnwrapChannelLink(channelLink string) string {
 	if len(channelLink) > 3 && channelLink[0] == '<' && channelLink[1] == '#' && channelLink[len(channelLink)-1] == '>' {
 		channelLink = channelLink[2 : len(channelLink)-1]
@@ -435,6 +463,7 @@ func (f *Formatter) UnwrapChannelLink(channelLink string) string {
 	return ""
 }
 
+// UnwrapLink accepts a formatted link and returns the associated URL.
 func (f *Formatter) UnwrapLink(link string) string {
 	if link[0] == '<' && link[len(link)-1] == '>' {
 		link = link[1 : len(link)-1]
@@ -490,6 +519,8 @@ func (u *slackUser) Timezone() *time.Location {
 	return time.FixedZone(fmt.Sprintf("offset%d", u.info.TZOffset), u.info.TZOffset)
 }
 
+// AssembleSlackAuthURL assembles a slack auth URL with the necessary client ID, scopes, user scopes, and
+// redirect URI.
 func AssembleSlackAuthURL(redirectURL string) string {
 	values := make(url.Values)
 	values.Set("client_id", *ClientID)
@@ -499,6 +530,7 @@ func AssembleSlackAuthURL(redirectURL string) string {
 	return slackAuthURL + "?" + values.Encode()
 }
 
+// VerifyEventMessage verifies an incoming request as being a valid event from Slack.
 func VerifyEventMessage(header http.Header, messageBody []byte) (ev ChatEvent, teamID string, err error) {
 	sv, err := slack.NewSecretsVerifier(header, *SigningSecret)
 	if err != nil {
@@ -508,9 +540,9 @@ func VerifyEventMessage(header http.Header, messageBody []byte) (ev ChatEvent, t
 		return ev, "", err
 	}
 	if err := sv.Ensure(); err != nil {
-		return ev, "", VerifyError
+		return ev, "", ErrVerifyFailed
 	}
-	apiEvent, err := slackevents.ParseEvent(json.RawMessage(messageBody), slackevents.OptionNoVerifyToken())
+	apiEvent, err := slackevents.ParseEvent(messageBody, slackevents.OptionNoVerifyToken())
 	if err != nil {
 		return ev, "", err
 	}
