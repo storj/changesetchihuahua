@@ -135,6 +135,62 @@ func (mr *MockEventedChatSystemMockRecorder) InformBuildSuccess(arg0, arg1, arg2
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InformBuildSuccess", reflect.TypeOf((*MockEventedChatSystem)(nil).InformBuildSuccess), arg0, arg1, arg2)
 }
 
+// InformBuildTypeFailure mocks base method
+func (m *MockEventedChatSystem) InformBuildTypeFailure(arg0 context.Context, arg1 messages.MessageHandle, arg2, arg3 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InformBuildTypeFailure", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InformBuildTypeFailure indicates an expected call of InformBuildTypeFailure
+func (mr *MockEventedChatSystemMockRecorder) InformBuildTypeFailure(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InformBuildTypeFailure", reflect.TypeOf((*MockEventedChatSystem)(nil).InformBuildTypeFailure), arg0, arg1, arg2, arg3)
+}
+
+// InformBuildTypeStarted mocks base method
+func (m *MockEventedChatSystem) InformBuildTypeStarted(arg0 context.Context, arg1 messages.MessageHandle, arg2, arg3 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InformBuildTypeStarted", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InformBuildTypeStarted indicates an expected call of InformBuildTypeStarted
+func (mr *MockEventedChatSystemMockRecorder) InformBuildTypeStarted(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InformBuildTypeStarted", reflect.TypeOf((*MockEventedChatSystem)(nil).InformBuildTypeStarted), arg0, arg1, arg2, arg3)
+}
+
+// InformBuildTypeSuccess mocks base method
+func (m *MockEventedChatSystem) InformBuildTypeSuccess(arg0 context.Context, arg1 messages.MessageHandle, arg2, arg3 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InformBuildTypeSuccess", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InformBuildTypeSuccess indicates an expected call of InformBuildTypeSuccess
+func (mr *MockEventedChatSystemMockRecorder) InformBuildTypeSuccess(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InformBuildTypeSuccess", reflect.TypeOf((*MockEventedChatSystem)(nil).InformBuildTypeSuccess), arg0, arg1, arg2, arg3)
+}
+
+// InformBuildTypeTriggered mocks base method
+func (m *MockEventedChatSystem) InformBuildTypeTriggered(arg0 context.Context, arg1 messages.MessageHandle, arg2, arg3 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "InformBuildTypeTriggered", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// InformBuildTypeTriggered indicates an expected call of InformBuildTypeTriggered
+func (mr *MockEventedChatSystemMockRecorder) InformBuildTypeTriggered(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InformBuildTypeTriggered", reflect.TypeOf((*MockEventedChatSystem)(nil).InformBuildTypeTriggered), arg0, arg1, arg2, arg3)
+}
+
 // LookupChannelByName mocks base method
 func (m *MockEventedChatSystem) LookupChannelByName(arg0 context.Context, arg1 string) (string, error) {
 	m.ctrl.T.Helper()
