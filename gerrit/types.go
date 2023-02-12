@@ -203,7 +203,7 @@ type ChangeInfo struct {
 	// WIP state. Only present on WIP changes and only if there are pending reviewer updates to
 	// report. These are reviewers who have not yet been notified about being added to or
 	// removed from the change.
-	PendingReviewers map[string]AccountInfo `json:"pending_reviewers"`
+	PendingReviewers map[string][]AccountInfo `json:"pending_reviewers"`
 	// ReviewerUpdates is updates to Reviewers set for the change as ReviewerUpdateInfo
 	// entities. Only set if DescribeReviewerUpdates is requested and if NoteDb is enabled.
 	ReviewerUpdates []ReviewerUpdateInfo `json:"reviewer_updates"`
