@@ -159,6 +159,7 @@ type ChangeInfo struct {
 	// SubmitType is the submit type of the change ("INHERIT"/"FAST_FORWARD_ONLY"/
 	// "MERGE_IF_NECESSARY"/"ALWAYS_MERGE"/"CHERRY_PICK"/"REBASE_IF_NECESSARY"/"REBASE_ALWAYS").
 	// Not set for merged changes.
+	SubmitType string `json:"submit_type"`
 	// Mergeable indicates whether the change is mergeable. Not set for merged changes, if the
 	// change has not yet been tested, or if DescribeSkipMergeable is passed or when
 	// change.api.excludeMergeableInChangeInfo is set in the Gerrit config.
