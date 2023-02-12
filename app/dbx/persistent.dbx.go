@@ -21,7 +21,7 @@ import (
 	"math/rand"
 )
 
-// Prevent conditional imports from causing build failures
+// Prevent conditional imports from causing build failures.
 var _ = strconv.Itoa
 var _ = strings.LastIndex
 var _ = fmt.Sprint
@@ -64,6 +64,10 @@ type Error struct {
 
 func (e *Error) Error() string {
 	return e.Err.Error()
+}
+
+func (e *Error) Unwrap() error {
+	return e.Err
 }
 
 func wrapErr(e *Error) error {
@@ -153,7 +157,7 @@ func Open(driver, source string) (db *DB, err error) {
 	}
 	defer func(sql_db *sql.DB) {
 		if err != nil {
-			sql_db.Close()
+			_ = sql_db.Close()
 		}
 	}(sql_db)
 
