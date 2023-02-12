@@ -244,7 +244,7 @@ func (g *Governor) VerifyAndHandleChatEvent(header http.Header, messageBody []by
 			if err := team.teamApp.Close(); err != nil {
 				g.logger.Info("failed to close team", zap.String("team-id", teamID), zap.Error(err))
 			}
-		} else {
+		} else if err != nil {
 			g.logger.Error("Unexpected error from teamApp.ChatEvent", zap.Error(err))
 		}
 	}()
