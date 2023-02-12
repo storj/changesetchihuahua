@@ -35,6 +35,11 @@ type ChatSystem interface {
 	InformBuildFailure(ctx context.Context, announcement MessageHandle, link string) error
 	InformBuildAborted(ctx context.Context, announcement MessageHandle, link string) error
 
+	InformBuildTypeTriggered(ctx context.Context, announcement MessageHandle, buildType, link string) error
+	InformBuildTypeStarted(ctx context.Context, announcement MessageHandle, buildType, link string) error
+	InformBuildTypeFailure(ctx context.Context, announcement MessageHandle, buildType, link string) error
+	InformBuildTypeSuccess(ctx context.Context, announcement MessageHandle, buildType, link string) error
+
 	UnmarshalMessageHandle(handleData string) (MessageHandle, error)
 }
 

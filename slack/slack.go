@@ -337,6 +337,79 @@ func (s *slackInterface) InformBuildAborted(ctx context.Context, mh messages.Mes
 	return s.api.AddReactionContext(ctx, "no_entry_sign", slack.NewRefToMessage(mhObj.Channel, mhObj.Timestamp))
 }
 
+func (s *slackInterface) InformBuildTypeTriggered(ctx context.Context, mh messages.MessageHandle, buildType, link string) error {
+	mhObj, ok := mh.(*messageHandle)
+	if !ok {
+		return errs.New("given message handle is a %T, not a *messageHandle", mh)
+	}
+	messageRef := slack.NewRefToMessage(mhObj.Channel, mhObj.Timestamp)
+	err := s.removeReactions(ctx, messageRef,
+		"build_"+buildType+"_started", "build_"+buildType+"_failed", "build_"+buildType+"_succeeded")
+	return errs.Combine(err, s.api.AddReactionContext(ctx, "build_"+buildType+"_triggered", messageRef))
+}
+
+func (s *slackInterface) InformBuildTypeStarted(ctx context.Context, mh messages.MessageHandle, buildType, link string) error {
+	mhObj, ok := mh.(*messageHandle)
+	if !ok {
+		return errs.New("given message handle is a %T, not a *messageHandle", mh)
+	}
+	messageRef := slack.NewRefToMessage(mhObj.Channel, mhObj.Timestamp)
+	err := s.removeReactions(ctx, messageRef,
+		"build_"+buildType+"_triggered", "build_"+buildType+"_failed", "build_"+buildType+"_succeeded")
+	return errs.Combine(err, s.api.AddReactionContext(ctx, "build_"+buildType+"_started", messageRef))
+}
+
+func (s *slackInterface) InformBuildTypeFailure(ctx context.Context, mh messages.MessageHandle, buildType, link string) error {
+	mhObj, ok := mh.(*messageHandle)
+	if !ok {
+		return errs.New("given message handle is a %T, not a *messageHandle", mh)
+	}
+	var errg errs.Group
+	_, _, err := s.api.PostMessageContext(ctx, mhObj.Channel, slack.MsgOptionText("Build failure: "+link, false), slack.MsgOptionTS(mhObj.Timestamp))
+	errg.Add(err)
+	messageRef := slack.NewRefToMessage(mhObj.Channel, mhObj.Timestamp)
+	err = s.removeReactions(ctx, messageRef,
+		"build_"+buildType+"_triggered", "build_"+buildType+"_started", "build_"+buildType+"_succeeded")
+	errg.Add(err)
+	errg.Add(s.api.AddReactionContext(ctx, "build_"+buildType+"_failed", messageRef))
+	return errg.Err()
+}
+
+func (s *slackInterface) InformBuildTypeSuccess(ctx context.Context, mh messages.MessageHandle, buildType, link string) error {
+	mhObj, ok := mh.(*messageHandle)
+	if !ok {
+		return errs.New("given message handle is a %T, not a *messageHandle", mh)
+	}
+	messageRef := slack.NewRefToMessage(mhObj.Channel, mhObj.Timestamp)
+	err := s.removeReactions(ctx, messageRef,
+		"build_"+buildType+"_triggered", "build_"+buildType+"_started", "build_"+buildType+"_failed")
+	return errs.Combine(err, s.api.AddReactionContext(ctx, "build_"+buildType+"_succeeded", messageRef))
+}
+
+func (s *slackInterface) removeReactions(ctx context.Context, ref slack.ItemRef, reactionNames ...string) error {
+	reactions, err := s.api.GetReactionsContext(ctx, ref, slack.GetReactionsParameters{Full: true})
+	if err != nil {
+		return err
+	}
+	var errg errs.Group
+	for _, reactionName := range reactionNames {
+		for _, existingReaction := range reactions {
+			if existingReaction.Name == reactionName {
+				// this reaction does exist on the message, but we aren't yet sure it was this bot that made it
+				for _, userID := range existingReaction.Users {
+					if userID == s.bot.ID {
+						errg.Add(s.api.RemoveReactionContext(ctx, reactionName, ref))
+						break
+					}
+				}
+				// either way, we're done with this reactionName
+				break
+			}
+		}
+	}
+	return errg.Err()
+}
+
 // GetOAuthV2Token issues a call to Slack to get a OAuth V2 token.
 func GetOAuthV2Token(ctx context.Context, clientID, clientSecret, code, redirectURI string) (resp *slack.OAuthV2Response, err error) {
 	return slack.GetOAuthV2ResponseContext(ctx, http.DefaultClient, clientID, clientSecret, code, redirectURI)

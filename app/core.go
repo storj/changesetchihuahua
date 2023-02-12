@@ -858,15 +858,34 @@ func (b byLastUpdateTime) Less(i, j int) bool {
 }
 
 var (
-	buildStartedRegexp    = regexp.MustCompile(`^Patch Set [1-9][0-9]*:\n *\n *Build Started +(https?:\S+)\s*$`)
-	buildSuccessfulRegexp = regexp.MustCompile(`^Patch Set [1-9][0-9]*: +[_A-Za-z0-9 ][-_A-Za-z0-9 ]*\+[0-9]+\n *\nBuild Successful *\n *\n(https?:\S+) : SUCCESS\s*$`)
-	buildFailedRegexp     = regexp.MustCompile(`^Patch Set [1-9][0-9]*: +(?:[_A-Za-z0-9 ][-_A-Za-z0-9 ]*-[0-9]+|-[_A-Za-z0-9 ][-_A-Za-z0-9 ]*)\n *\nBuild Failed *\n *\n(https?:\S+) : (FAILURE|ABORTED)\s*$`)
+	generalRobotCommentRegexp = regexp.MustCompile(`(?s)^Patch Set [1-9][0-9]*:(?: +(?:[_A-Za-z0-9][-_A-Za-z0-9 ]*[-+][0-9]+|[-+][_A-Za-z0-9][-_A-Za-z0-9 ]*))? *\n *\n(.*)$`)
+
+	buildStartedRegexp    = regexp.MustCompile(`^ *Build Started +(https?:\S+)\s*$`)
+	buildSuccessfulRegexp = regexp.MustCompile(`^ *Build Successful *\n *\n(https?:\S+) : SUCCESS\s*$`)
+	buildFailedRegexp     = regexp.MustCompile(`^ *Build Failed *\n *\n(https?:\S+) : (FAILURE|ABORTED)\s*$`)
+
+	buildTypeTriggeredRegexp  = regexp.MustCompile(`^ *triggering build (.+)\.\.\.\s*$`)
+	buildTypeStartedRegexp    = regexp.MustCompile(`^ *build (.+) is started: +(https?:\S+)\s*$`)
+	buildTypeFailedRegexp     = regexp.MustCompile(`^ *build (.+) is failed: +(https?:\S+)\s*$`)
+	buildTypeSuccessfulRegexp = regexp.MustCompile(`^ *build (.+) is finished successfully: +(https?:\S+)\s*$`)
 )
 
 // JenkinsRobotCommentAdded is called when the Jenkins robot adds a comment to a Gerrit change.
 func (a *App) JenkinsRobotCommentAdded(ctx context.Context, change events.Change, patchSet events.PatchSet, comment string) bool {
-	var link string
-	var msgType string
+	var (
+		link      string
+		msgType   string
+		buildType string
+	)
+	if subMatches := generalRobotCommentRegexp.FindStringSubmatch(comment); subMatches != nil {
+		// we don't especially care about the "Patch Set" label or the optionally-included vote part; strip that off
+		comment = subMatches[1]
+	} else {
+		// no magic to do here; report as normal comment
+		a.logger.Debug("unexpected comment format from jenkins robot user", zap.String("content", comment), zap.String("change", change.URL), zap.Int("patchset", patchSet.Number))
+		return false
+	}
+
 	if subMatches := buildStartedRegexp.FindStringSubmatch(comment); subMatches != nil {
 		link = subMatches[1]
 		msgType = "start"
@@ -880,6 +899,21 @@ func (a *App) JenkinsRobotCommentAdded(ctx context.Context, change events.Change
 		} else {
 			msgType = "fail"
 		}
+	} else if subMatches = buildTypeTriggeredRegexp.FindStringSubmatch(comment); subMatches != nil {
+		msgType = "type-triggered"
+		buildType = subMatches[1]
+	} else if subMatches = buildTypeStartedRegexp.FindStringSubmatch(comment); subMatches != nil {
+		msgType = "type-start"
+		buildType = subMatches[1]
+		link = subMatches[2]
+	} else if subMatches = buildTypeFailedRegexp.FindStringSubmatch(comment); subMatches != nil {
+		msgType = "type-fail"
+		buildType = subMatches[1]
+		link = subMatches[2]
+	} else if subMatches = buildTypeSuccessfulRegexp.FindStringSubmatch(comment); subMatches != nil {
+		msgType = "type-success"
+		buildType = subMatches[1]
+		link = subMatches[2]
 	} else {
 		// no magic to do here; report as normal comment
 		a.logger.Debug("unexpected comment from jenkins robot user", zap.String("content", comment), zap.String("change", change.URL), zap.Int("patchset", patchSet.Number))
@@ -895,17 +929,19 @@ func (a *App) JenkinsRobotCommentAdded(ctx context.Context, change events.Change
 		return false
 	}
 
-	linkTransformer := a.persistentDB.JustGetConfig(ctx, "jenkins-link-transformer", "")
-	if linkTransformer != "" {
-		newLink, err := applyStringTransformer(link, linkTransformer)
-		if err != nil {
-			a.logger.Info("failed to apply jenkins link transformer", zap.Error(err))
-		} else {
-			link = newLink
+	if link != "" {
+		linkTransformer := a.persistentDB.JustGetConfig(ctx, "jenkins-link-transformer", "")
+		if linkTransformer != "" {
+			newLink, err := applyStringTransformer(link, linkTransformer)
+			if err != nil {
+				a.logger.Info("failed to apply jenkins link transformer", zap.Error(err))
+			} else {
+				link = newLink
+			}
 		}
 	}
 
-	// we will send an actual notification only the change owner, patchset author, and
+	// we will send an actual notification only to the change owner, patchset author, and
 	// patchset uploader (who are in many cases the same user). No need to bother the global
 	// channel or reviewers/CCs.
 	toNotify := map[events.Account]struct{}{change.Owner: {}, patchSet.Author: {}, patchSet.Uploader: {}}
@@ -925,6 +961,24 @@ func (a *App) JenkinsRobotCommentAdded(ctx context.Context, change events.Change
 	case "abort":
 		notifyMsg = fmt.Sprintf("Build for %s was canceled", changeLink)
 		informFunc = a.chat.InformBuildAborted
+	case "type-triggered":
+		informFunc = func(ctx context.Context, announcement messages.MessageHandle, link string) error {
+			return a.chat.InformBuildTypeTriggered(ctx, announcement, buildType, link)
+		}
+	case "type-start":
+		informFunc = func(ctx context.Context, announcement messages.MessageHandle, link string) error {
+			return a.chat.InformBuildTypeStarted(ctx, announcement, buildType, link)
+		}
+	case "type-fail":
+		notifyMsg = fmt.Sprintf("%s build for %s failed: %s", buildType, changeLink, link)
+		informFunc = func(ctx context.Context, announcement messages.MessageHandle, link string) error {
+			return a.chat.InformBuildTypeFailure(ctx, announcement, buildType, link)
+		}
+	case "type-success":
+		notifyMsg = fmt.Sprintf("%s build for %s succeeded: %s", buildType, changeLink, link)
+		informFunc = func(ctx context.Context, announcement messages.MessageHandle, link string) error {
+			return a.chat.InformBuildTypeSuccess(ctx, announcement, buildType, link)
+		}
 	default:
 		a.logger.Error("things are definitely broken. unrecognized msgType", zap.String("msgType", msgType))
 		return false
