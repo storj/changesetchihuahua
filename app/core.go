@@ -629,6 +629,16 @@ func (a *App) pickBestMatchMessage(revisionNum int, authorUsername string, sentT
 	return closest, nil
 }
 
+func commaSeparatedListContains(commaSeparatedList, needle string) bool {
+	haystack := strings.Split(commaSeparatedList, ",")
+	for _, element := range haystack {
+		if element == needle {
+			return true
+		}
+	}
+	return false
+}
+
 var (
 	commentsXCommentsRegex = regexp.MustCompile(`^\s*\([0-9]+ comments?\)(\n\n|$)`)
 	commentsPatchSetRegex  = regexp.MustCompile(`^\s*Patch Set [0-9]+:\s*`)
@@ -653,8 +663,8 @@ var (
 //   - For all new inline comments, notify the change owner and all prior thread participants (except
 //     for the commenter).
 func (a *App) CommentAdded(ctx context.Context, author events.Account, change events.Change, patchSet events.PatchSet, comment string, eventTime time.Time) {
-	jenkinsRobot := a.persistentDB.JustGetConfig(ctx, "jenkins-robot-user", "")
-	if jenkinsRobot != "" && author.Username == jenkinsRobot {
+	jenkinsRobots := a.persistentDB.JustGetConfig(ctx, "jenkins-robot-user", "")
+	if jenkinsRobots != "" && commaSeparatedListContains(jenkinsRobots, author.Username) {
 		if a.JenkinsRobotCommentAdded(ctx, change, patchSet, comment) {
 			return
 		}
