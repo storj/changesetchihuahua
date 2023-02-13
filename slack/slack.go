@@ -387,23 +387,13 @@ func (s *slackInterface) InformBuildTypeSuccess(ctx context.Context, mh messages
 }
 
 func (s *slackInterface) removeReactions(ctx context.Context, ref slack.ItemRef, reactionNames ...string) error {
-	reactions, err := s.api.GetReactionsContext(ctx, ref, slack.GetReactionsParameters{Full: true})
-	if err != nil {
-		return err
-	}
 	var errg errs.Group
 	for _, reactionName := range reactionNames {
-		for _, existingReaction := range reactions {
-			if existingReaction.Name == reactionName {
-				// this reaction does exist on the message, but we aren't yet sure it was this bot that made it
-				for _, userID := range existingReaction.Users {
-					if userID == s.bot.ID {
-						errg.Add(s.api.RemoveReactionContext(ctx, reactionName, ref))
-						break
-					}
-				}
-				// either way, we're done with this reactionName
-				break
+		err := s.api.RemoveReactionContext(ctx, reactionName, ref)
+		var slackErr slack.SlackErrorResponse
+		if errors.As(err, &slackErr) {
+			if slackErr.Err != "no_reaction" {
+				errg.Add(err)
 			}
 		}
 	}
