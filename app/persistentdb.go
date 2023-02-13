@@ -3,9 +3,11 @@ package app
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,7 +17,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/database/sqlite3"
-	"github.com/golang-migrate/migrate/v4/source/go_bindata"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/zeebo/errs"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -23,7 +25,8 @@ import (
 	"github.com/storj/changesetchihuahua/app/dbx"
 )
 
-//go:generate go-bindata -pkg app -prefix migrations -modtime 1574794364 -mode 420 -o migrations.go -ignore=/\. migrations/
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
 
 var (
 	prunePeriod       = flag.Duration("db-prune-period", time.Hour, "Time between persistent db prune jobs")
@@ -85,9 +88,9 @@ func initializePersistentDB(logger *zap.Logger, dbSource string) (*dbx.DB, error
 		return nil, err
 	}
 
-	migrationSource, err := bindata.WithInstance(bindata.Resource(AssetNames(), Asset))
+	migrationSource, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
 	}
 
 	var migrationTarget database.Driver
@@ -101,7 +104,7 @@ func initializePersistentDB(logger *zap.Logger, dbSource string) (*dbx.DB, error
 		return nil, err
 	}
 
-	migrator, err := migrate.NewWithInstance("go-bindata", migrationSource, "persistent-db", migrationTarget)
+	migrator, err := migrate.NewWithInstance("iofs", migrationSource, "persistent-db", migrationTarget)
 	if err != nil {
 		return nil, err
 	}
