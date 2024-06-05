@@ -1,0 +1,31 @@
+# This is a SystemD unit file for the Changeset Chihuahua Service
+# To use:
+# - Place this file in /etc/systemd/system/ or wherever your SystemD unit files are stored
+# - Run 'sudo systemctl daemon-reload'
+# - To start run 'sudo systemctl start changesetchihuahua'
+
+[Unit]
+Description  = Changeset Chihuahua service
+After        = syslog.target network.target
+Wants        = network-online.target
+
+[Service]
+WorkingDirectory = /home/paul/
+User         = paul
+Group        = paul
+ExecStart    = /home/paul/changesetchihuahua -external-url https://git-syncing.dev.storj.io/ -slack-client-id SLACK_CLIENT_ID_GOES_HERE -slack-client-secret SLACK_CLIENT_SECRET_GOES_HERE -slack-signing-secret SLACK_SIGNING_SECRET_GOES_HERE -http-listen :8081 -https-listen :443 -log-gerrit-usage -log-gerrit-events
+Restart      = always
+RestartSec   = 5s
+Type         = simple
+NotifyAccess = main
+AmbientCapabilities = CAP_NET_BIND_SERVICE
+NoNewPrivileges = yes
+LimitMEMLOCK = infinity
+LimitNOFILE = 65535
+
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=changesetchihuahua
+
+[Install]
+WantedBy     = multi-user.target
