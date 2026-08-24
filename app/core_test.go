@@ -825,7 +825,7 @@ func stringTrimEq(s string) *stringTrimMatcher {
 	return &stringTrimMatcher{lines}
 }
 
-func (stm *stringTrimMatcher) Matches(x interface{}) bool {
+func (stm *stringTrimMatcher) Matches(x any) bool {
 	s, ok := x.(string)
 	if !ok {
 		return false

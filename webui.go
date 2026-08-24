@@ -67,8 +67,7 @@ func (ws *uiWebState) HandleChatEvent(w http.ResponseWriter, r *http.Request) {
 	responseBytes, err := ws.governor.VerifyAndHandleChatEvent(r.Header, body)
 	if err != nil {
 		logger := ws.logger.With(zap.Error(err), zap.Any("headers", r.Header), zap.ByteString("event-body", body))
-		var badEvent *slack.BadEvent
-		if errors.As(err, &badEvent) {
+		if _, ok := errors.AsType[*slack.BadEvent](err); ok {
 			logger.Info("Bad chat event received")
 			w.WriteHeader(http.StatusBadRequest)
 		} else if errors.Is(err, slack.ErrVerifyFailed) {

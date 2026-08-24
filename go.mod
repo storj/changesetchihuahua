@@ -1,6 +1,6 @@
 module github.com/storj/changesetchihuahua
 
-go 1.22
+go 1.26
 
 require (
 	github.com/golang-migrate/migrate/v4 v4.15.2

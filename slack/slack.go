@@ -390,8 +390,7 @@ func (s *slackInterface) removeReactions(ctx context.Context, ref slack.ItemRef,
 	var errg errs.Group
 	for _, reactionName := range reactionNames {
 		err := s.api.RemoveReactionContext(ctx, reactionName, ref)
-		var slackErr slack.SlackErrorResponse
-		if errors.As(err, &slackErr) {
+		if slackErr, ok := errors.AsType[slack.SlackErrorResponse](err); ok {
 			if slackErr.Err != "no_reaction" {
 				errg.Add(err)
 			}
@@ -406,7 +405,7 @@ func GetOAuthV2Token(ctx context.Context, clientID, clientSecret, code, redirect
 }
 
 // postForm is very similar to slack.postForm(); reimplemented for the sake of getOAuthToken().
-func postForm(ctx context.Context, endpoint string, values url.Values, intf interface{}) error {
+func postForm(ctx context.Context, endpoint string, values url.Values, intf any) error {
 	reqBody := strings.NewReader(values.Encode())
 	req, err := http.NewRequest("POST", endpoint, reqBody)
 	if err != nil {

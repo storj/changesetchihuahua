@@ -133,7 +133,7 @@ func (c *client) doGetString(ctx context.Context, path string, query url.Values)
 	return string(bodyBytes), nil
 }
 
-func (c *client) doGetJSON(ctx context.Context, path string, query url.Values, v interface{}) error {
+func (c *client) doGetJSON(ctx context.Context, path string, query url.Values, v any) error {
 	resp, bodyBytes, err := c.doGet(ctx, path, query)
 	if resp != nil {
 		defer func() { _ = resp.Body.Close() }()

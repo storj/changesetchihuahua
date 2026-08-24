@@ -45,7 +45,7 @@ func DecodeGerritEvent(eventJSON []byte) (GerritEvent, error) {
 	if err := json.Unmarshal(eventJSON, &eventType); err != nil {
 		return nil, EventDecodingError.Wrap(err)
 	}
-	var evStruct interface{}
+	var evStruct any
 	// lol yes we are just going to unmarshal it again
 	switch eventType.Type {
 	case "assignee-changed":

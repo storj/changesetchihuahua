@@ -269,7 +269,7 @@ type Requirement struct {
 	Type string
 	// Data holds custom key-value strings, used in templates to render richer status messages.
 	// (Not sure what structure that data takes.)
-	Data interface{}
+	Data any
 }
 
 // ReviewerUpdateInfo contains information about updates to change’s reviewers set.
